@@ -1,132 +1,160 @@
-#include <SPI.h>
-#include <nRF24L01.h>
-#include <RF24.h>
 #include <LiquidCrystal_I2C.h>
-
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// Channel buttons
-int Ch1 = A3;
-int Ch2 = A2;
-int Ch3 = A1;
-int Ch4 = A0;
+const int CLK = 10;
+const int DT = 9;
+const int SW = 3;
+//const int RESSET_BTN = 5;
 
-//Other buttons
-int Rapid = 6; // Btn1
-int AllFire = 5; //Btn2
+int resset;
 
-//Encoder
-int DT = 9;
-int CLK = 10;
-int SW = 3;
+int screen_delay = 1000;
 
-//Safety key
-int KEY = 4;
+int lastCLKState;
+int currentCLKState;
+int DTState;
+int SWState;
 
+int screen = 1;
+const int max_screens = 4;
 
-int buttonval1 = 1;
-int buttonval2 = 1;
-int buttonval3 = 1;
-int buttonval4 = 1;
+bool selectedScreen = false;
 
-int Ch1Val;
-int Ch2Val;
-int Ch3Val;
-int Ch4Val;
+int counter = 0;
 
-RF24 radio(7, 8); // CE, CSN
+const int SHORT_PRESS_TIME = 350; // 500 milliseconds
+int lastState = LOW;  // the previous state from the input pin
+int currentState;     // the current reading from the input pin
+unsigned long pressedTime  = 0;
+unsigned long releasedTime = 0;
 
-const byte address[6] = "Node1";
-//const byte address[6] = "Node2";
-//const byte address[6] = "Node3";
-//const byte address[6] = "Node4";
-
+byte arrow[8] = {
+  0b01000,
+  0b01100,
+  0b01110,
+  0b01111,
+  0b01110,
+  0b01100,
+  0b01000,
+  0b00000
+};
 
 void setup() {
-  Serial.begin(9600);
   lcd.init();
   lcd.backlight();
+  lcd.setCursor(3, 0);
+  lcd.print("Fireworks");
+  lcd.setCursor(4, 1);
+  lcd.print("Igniter");
+
+  lcd.createChar(0, arrow);
+
+  delay(3000);
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("   Fireworks    ");
-  lcd.setCursor(0, 1);
-  lcd.print("    Igniter     ");
-  delay(2000);
-  lcd.clear();
-  pinMode(Ch1, INPUT_PULLUP);
-  pinMode(Ch2, INPUT_PULLUP);
-  pinMode(Ch3, INPUT_PULLUP);
-  pinMode(Ch4, INPUT_PULLUP);
-  pinMode(KEY, INPUT_PULLUP);
-  radio.begin();
-  radio.openWritingPipe(address);
-  radio.setPALevel(RF24_PA_MIN);
-  radio.stopListening();
+  checkScreen(screen);
+
+  pinMode(CLK, INPUT);
+  pinMode(DT, INPUT);
+  pinMode(SW, INPUT_PULLUP);
+  
+  lastCLKState = digitalRead(CLK);
+}
+void loop() {
+  currentCLKState = digitalRead(CLK);
+  
+  if (currentCLKState != lastCLKState && currentCLKState == 1) {    
+    DTState = digitalRead(DT);
+    if (DTState != currentCLKState) { // CW
+      if (!selectedScreen) {
+        if (screen < max_screens) screen++;
+        checkScreen(screen);
+      } else return;
+    } else {                          // CCW
+      if (!selectedScreen) {
+        if (screen > 1) screen--; 
+        checkScreen(screen);
+      }
+    }
+  } 
+
+  SWState = digitalRead(SW);
+  
+  if(lastState == HIGH && SWState == LOW)        // button is pressed
+    pressedTime = millis();
+  else if(lastState == LOW && SWState == HIGH) { // button is released
+    releasedTime = millis();
+
+    long pressDuration = releasedTime - pressedTime;
+
+    if( pressDuration < SHORT_PRESS_TIME ) {
+      selectScreen();
+      selectedScreen = true; 
+    } else {
+      lcd.clear();
+      screen = 1;
+      checkScreen(screen);
+      selectedScreen = false; 
+    }
+  }
+
+  // save the the last state
+  lastState = SWState;
+  lastCLKState = currentCLKState;
+  
 }
 
-void loop() {
+void checkScreen(int sc) {
+  switch(sc) {
+    case 1:
+      lcd.clear();
+      lcd.setCursor(2, 0);
+      lcd.print("Node 1");
+      lcd.setCursor(0, 0);
+      lcd.write(byte(0));
+      lcd.setCursor(2, 1);
+      lcd.print("Node 2");
+      break;
+    case 2:
+      lcd.clear();
+      lcd.setCursor(2, 0);
+      lcd.print("Node 1");
+      lcd.setCursor(0, 1);
+      lcd.write(byte(0));
+      lcd.setCursor(2, 1);
+      lcd.print("Node 2");
+      break;
+    case 3:
+      lcd.clear();
+      lcd.setCursor(2, 0);
+      lcd.print("Node 3");
+      lcd.setCursor(0, 0);
+      lcd.write(byte(0));
+      lcd.setCursor(2, 1);
+      lcd.print("Node 4");
+      break;
+    case 4:
+      lcd.clear();
+      lcd.setCursor(2, 0);
+      lcd.print("Node 3");
+      lcd.setCursor(0, 1);
+      lcd.write(byte(0));
+      lcd.setCursor(2, 1);
+      lcd.print("Node 4");
+      break;
+    default: screen = 4;
+  }  
+}
 
-  Ch1Val = analogRead(Ch1);
-  Ch2Val = analogRead(Ch2);
-  Ch3Val = analogRead(Ch3);
-  Ch4Val = analogRead(Ch4);
-
+void selectScreen() {
+  lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Select channel:");
-
-  if (Ch1Val < 1000) {
-    buttonval1 = 0;
-    lcd.setCursor(0, 1);
-    lcd.print(" 1 ");
-    delay(300);
-    lcd.clear();
-    delay(100);
-
-  }
-
-  else if (Ch2Val < 1000) {
-    buttonval2 = 0;
-    lcd.setCursor(0, 1);
-    lcd.print("   2 ");
-    delay(300);
-    lcd.clear();
-    delay(100);
-  }
-
-  else if (Ch3Val < 1000) {
-    buttonval3 = 0;
-    lcd.setCursor(0, 1);
-    lcd.print("      3 ");
-    delay(300);
-    lcd.clear();
-    delay(100);
-  }
-
-  else if (Ch4Val < 1000) {
-    buttonval4 = 0;
-    lcd.setCursor(0, 1);
-    lcd.print("         4 ");
-    delay(300);
-    lcd.clear();
-    delay(100);
-  }
-
-  else {
-    buttonval1 = 1;
-    buttonval2 = 1;
-    buttonval3 = 1;
-    buttonval4 = 1;
-    delay(100);
-  }
-
-
-
-
-
-  radio.write(&buttonval1, sizeof(buttonval1));
-  radio.write(&buttonval2, sizeof(buttonval2));
-  radio.write(&buttonval3, sizeof(buttonval3));
-  radio.write(&buttonval4, sizeof(buttonval4));
-
-
+  lcd.print("Select Channel:");
+  lcd.setCursor(0, 1);
+  lcd.print("CH1");
+  lcd.setCursor(4, 1);
+  lcd.print("CH2");
+  lcd.setCursor(8, 1);
+  lcd.print("CH3");
+  lcd.setCursor(12, 1);
+  lcd.print("CH4");
 }
